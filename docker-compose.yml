@@ -10,7 +10,7 @@ services:
       labels:
         - "com.moonlight-qt.build=true"
     volumes:
-      - ./build:/output-host
+      - ./builds:/output-host
     entrypoint: ["/bin/sh", "-c", "cp /output/Moonlight-x86_64.AppImage /output-host/Moonlight-x86_64.AppImage"]
     platform: linux/amd64
 
@@ -23,6 +23,6 @@ services:
       labels:
         - "com.moonlight-qt.build=true"
     volumes:
-      - ./build:C:\output-host
+      - ./builds:C:\output-host
     entrypoint: ["cmd", "/c", "copy", "C:\\output\\MoonlightPortable-x64.zip", "C:\\output-host\\MoonlightPortable-x64.zip"]
     platform: windows/amd64
