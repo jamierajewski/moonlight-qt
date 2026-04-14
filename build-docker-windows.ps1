@@ -35,9 +35,6 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 docker compose run --rm windows
 $runExitCode = $LASTEXITCODE
 
-# Clean up Compose network (images are preserved for caching)
-docker compose down 2>$null | Out-Null
-
 # Remove dangling images from previous builds (build cache is unaffected)
 docker image prune -f --filter "label=com.moonlight-qt.build=true" 2>$null | Out-Null
 
