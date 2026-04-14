@@ -112,7 +112,3 @@ RUN ldconfig && \
 # Extract artifact
 RUN mkdir -p /output && \
     cp build/installer-release/Moonlight-*-x86_64.AppImage /output/Moonlight-x86_64.AppImage
-
-# Minimal output stage
-FROM scratch AS artifact
-COPY --from=builder /output/Moonlight-x86_64.AppImage /Moonlight-x86_64.AppImage

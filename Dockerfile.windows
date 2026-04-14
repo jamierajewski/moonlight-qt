@@ -16,15 +16,15 @@ RUN Invoke-WebRequest -Uri https://aka.ms/vs/17/release/vs_buildtools.exe -OutFi
       -Wait -NoNewWindow; `
     Remove-Item vs_buildtools.exe -Force
 
-# Install Python (for aqtinstall)
+# Install Python, use it to install Qt via aqtinstall, then remove Python.
+# Combined into one RUN so Python's ~766 MB doesn't persist as a layer.
+# Uses absolute paths since PrependPath only takes effect in the next layer.
 RUN Invoke-WebRequest -Uri https://www.python.org/ftp/python/3.12.4/python-3.12.4-amd64.exe -OutFile python-installer.exe; `
-    Start-Process -FilePath .\python-installer.exe -ArgumentList '/quiet', 'InstallAllUsers=1', 'PrependPath=1' -Wait -NoNewWindow; `
-    Remove-Item python-installer.exe -Force
-
-# Install Qt via aqtinstall, then remove Python
-RUN pip install --no-cache-dir https://github.com/miurahr/aqtinstall/archive/073e34d7c2ab4ae6961ed7cca690b3abd5ba5a7e.zip; `
-    aqt install-qt windows desktop 6.11.0 win64_msvc2022_64 --outputdir C:\Qt; `
-    pip uninstall -y aqtinstall; `
+    Start-Process -FilePath .\python-installer.exe -ArgumentList '/quiet', 'InstallAllUsers=1', 'TargetDir=C:\Python' -Wait -NoNewWindow; `
+    Remove-Item python-installer.exe -Force; `
+    C:\Python\python.exe -m pip install --no-cache-dir https://github.com/miurahr/aqtinstall/archive/073e34d7c2ab4ae6961ed7cca690b3abd5ba5a7e.zip; `
+    C:\Python\Scripts\aqt.exe install-qt windows desktop 6.11.0 win64_msvc2022_64 --outputdir C:\Qt; `
+    Remove-Item -Recurse -Force C:\Python -ErrorAction SilentlyContinue; `
     Remove-Item -Recurse -Force ($env:TEMP + '\*') -ErrorAction SilentlyContinue
 
 # Install 7-Zip
@@ -55,7 +55,3 @@ SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPref
 RUN New-Item -ItemType Directory -Force -Path C:\output\deploy | Out-Null; `
     Copy-Item build\installer-x64-release\MoonlightPortable-x64-*.zip C:\output\MoonlightPortable-x64.zip; `
     Copy-Item build\deploy-x64-release\* C:\output\deploy\ -Recurse -Force
-
-# Minimal output stage
-FROM mcr.microsoft.com/windows/nanoserver:ltsc2025 AS artifact
-COPY --from=builder C:\output C:\output
