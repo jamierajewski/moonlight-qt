@@ -128,7 +128,7 @@ if /I "%VC_ARCH%" NEQ "%PROCESSOR_ARCHITECTURE%" (
 )
 
 rem Find Visual Studio and run vcvarsall.bat
-set VSWHERE="%SOURCE_ROOT%\scripts\vswhere.exe"
+set VSWHERE="%SOURCE_ROOT%\scripts\vswhere.exe" -products *
 for /f "usebackq delims=" %%i in (`%VSWHERE% -latest -property installationPath`) do (
     call "%%i\VC\Auxiliary\Build\vcvarsall.bat" %VC_ARCH%
 )
@@ -255,9 +255,11 @@ if "%ML_SYMBOL_STORE%" NEQ "" (
     if !ERRORLEVEL! NEQ 0 goto Error
 )
 
-echo Building MSI
-cmd /c "set VERSION= && msbuild -Restore %SOURCE_ROOT%\wix\Moonlight\Moonlight.wixproj /p:Configuration=%BUILD_CONFIG% /p:Platform=%ARCH% /p:MSBuildProjectExtensionsPath=%BUILD_FOLDER%\"
-if !ERRORLEVEL! NEQ 0 goto Error
+if "%SKIP_MSI%" NEQ "1" (
+    echo Building MSI
+    cmd /c "set VERSION= && msbuild -Restore %SOURCE_ROOT%\wix\Moonlight\Moonlight.wixproj /p:Configuration=%BUILD_CONFIG% /p:Platform=%ARCH% /p:MSBuildProjectExtensionsPath=%BUILD_FOLDER%\"
+    if !ERRORLEVEL! NEQ 0 goto Error
+)
 
 echo Copying application binary to deployment directory
 copy %BUILD_FOLDER%\app\%BUILD_CONFIG%\Moonlight.exe %DEPLOY_FOLDER%
