@@ -1,0 +1,118 @@
+FROM ubuntu:22.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies (matches CI: build-appimage.yml)
+RUN apt-get update && apt-get install -y \
+    wget gnupg software-properties-common git python3-pip nasm cmake ninja-build autoconf automake libtool pkg-config make \
+    qt6-base-dev qt6-declarative-dev libqt6svg6-dev \
+    qml6-module-qtquick-controls qml6-module-qtquick-templates qml6-module-qtquick-layouts \
+    qml6-module-qtqml-workerscript qml6-module-qtquick-window qml6-module-qtquick \
+    libgbm-dev libdrm-dev libfreetype-dev libasound2-dev libdbus-1-dev \
+    libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev libglu1-mesa-dev \
+    libibus-1.0-dev libpulse-dev libudev-dev libx11-dev libxcursor-dev \
+    libxext-dev libxi-dev libxinerama-dev libxkbcommon-dev libxrandr-dev \
+    libxss-dev libxt-dev libxv-dev libxxf86vm-dev libxcb-dri3-dev libx11-xcb-dev \
+    libxfixes-dev libxtst-dev wayland-protocols libopus-dev libvdpau-dev libgl-dev \
+    libpipewire-0.3-dev liburing-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Vulkan SDK
+RUN wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | apt-key add - && \
+    wget -qO /etc/apt/sources.list.d/lunarg-vulkan-1.4.313-jammy.list \
+      https://packages.lunarg.com/vulkan/1.4.313/lunarg-vulkan-1.4.313-jammy.list && \
+    apt-get update && apt-get install -y vulkan-sdk && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir meson
+
+WORKDIR /deps
+
+# Build SDL3
+RUN git clone --branch release-3.4.4 --depth 1 https://github.com/libsdl-org/SDL.git && \
+    cd SDL && \
+    cmake -DSDL_KMSDRM=OFF -DSDL_TEST_LIBRARY=OFF -DSDL_INSTALL_DOCS=OFF -S . -B build && \
+    cmake --build build -j$(nproc) && \
+    cmake --install build && \
+    cd .. && rm -rf SDL
+
+# Build sdl2-compat
+RUN git clone --branch release-2.32.66 --depth 1 https://github.com/libsdl-org/sdl2-compat.git && \
+    cd sdl2-compat && \
+    cmake -DSDL2COMPAT_TESTS=OFF -S . -B build && \
+    cmake --build build -j$(nproc) && \
+    cmake --install build && \
+    cd .. && rm -rf sdl2-compat
+
+# Build SDL_ttf
+RUN git clone --branch release-2.22.0 --depth 1 --recursive https://github.com/libsdl-org/SDL_ttf.git && \
+    cd SDL_ttf && \
+    ./autogen.sh && \
+    ./configure && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && rm -rf SDL_ttf
+
+# Build libva
+RUN git clone --branch 2.23.0 --depth 1 https://github.com/intel/libva.git && \
+    cd libva && \
+    ./autogen.sh && \
+    ./configure --enable-x11 && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && rm -rf libva
+
+# Build libplacebo
+RUN git clone --branch v7.360.1 --depth 1 --recursive https://github.com/haasn/libplacebo.git && \
+    cd libplacebo && \
+    meson setup build -Dvulkan=enabled -Dopengl=disabled -Ddemos=false && \
+    ninja -C build && \
+    ninja install -C build && \
+    cd .. && rm -rf libplacebo
+
+# Build dav1d
+RUN git clone --branch 1.5.3 --depth 1 https://code.videolan.org/videolan/dav1d.git && \
+    cd dav1d && \
+    meson setup build -Ddefault_library=static -Dbuildtype=release -Denable_tools=false -Denable_tests=false && \
+    ninja -C build && \
+    ninja install -C build && \
+    cd .. && rm -rf dav1d
+
+# Build FFmpeg
+RUN git clone --branch n8.1 --depth 1 https://github.com/FFmpeg/FFmpeg.git && \
+    cd FFmpeg && \
+    ./configure --enable-pic --disable-static --enable-shared --disable-all --disable-autodetect --enable-avcodec --enable-avformat --enable-swscale \
+      --enable-decoder=h264 --enable-decoder=hevc --enable-decoder=av1 \
+      --enable-vaapi --enable-hwaccel=h264_vaapi --enable-hwaccel=hevc_vaapi --enable-hwaccel=av1_vaapi \
+      --enable-vdpau --enable-hwaccel=h264_vdpau --enable-hwaccel=hevc_vdpau --enable-hwaccel=av1_vdpau \
+      --enable-libdrm --enable-vulkan --enable-hwaccel=h264_vulkan --enable-hwaccel=hevc_vulkan --enable-hwaccel=av1_vulkan \
+      --enable-libdav1d --enable-decoder=libdav1d && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && rm -rf FFmpeg
+
+# Install linuxdeployqt
+RUN wget -O /usr/local/bin/linuxdeployqt \
+      https://github.com/probonopd/linuxdeployqt/releases/download/continuous/linuxdeployqt-continuous-x86_64.AppImage && \
+    chmod a+x /usr/local/bin/linuxdeployqt
+
+# Copy source (submodules must be initialized before docker build)
+WORKDIR /src
+COPY . .
+
+# Ensure submodules are present
+RUN if [ ! -f moonlight-common-c/moonlight-common-c/CMakeLists.txt ]; then \
+      echo "ERROR: Submodules not initialized. Run 'git submodule update --init --recursive' before building." && exit 1; \
+    fi
+
+# Build AppImage
+RUN ldconfig && \
+    scripts/build-appimage.sh
+
+# Extract artifact
+RUN mkdir -p /output && \
+    cp build/installer-release/Moonlight-*-x86_64.AppImage /output/Moonlight-x86_64.AppImage
+
+# Minimal output stage
+FROM scratch AS artifact
+COPY --from=builder /output/Moonlight-x86_64.AppImage /Moonlight-x86_64.AppImage
