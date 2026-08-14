@@ -698,6 +698,67 @@ Flickable {
                         snapMode: "SnapOnRelease"
                         width: Math.min(bitrateDesc.implicitWidth, parent.width - (resetBitrateButton.visible ? resetBitrateButton.width + parent.spacing : 0))
 
+                        property int accelDirection: 0
+                        property int accelIteration: 0
+
+                        function getAccelStep(iter) {
+                            if (iter < 3)  return 500
+                            if (iter < 7)  return 2500
+                            if (iter < 15) return 10000
+                            return 25000
+                        }
+
+                        function applyAccelStep() {
+                            var step = getAccelStep(accelIteration)
+                            var newVal = Math.round(
+                                Math.max(from, Math.min(to, value + accelDirection * step)) / 500) * 500
+                            value = newVal
+                            StreamingPreferences.autoAdjustBitrate = false
+                            accelIteration++
+                        }
+
+                        Timer {
+                            id: accelTimer
+                            interval: 100
+                            repeat: true
+                            running: slider.accelDirection !== 0
+                            onTriggered: slider.applyAccelStep()
+                        }
+
+                        Timer {
+                            id: releaseTimer
+                            interval: 200
+                            repeat: false
+                            onTriggered: {
+                                slider.accelDirection = 0
+                                slider.accelIteration = 0
+                            }
+                        }
+
+                        Keys.onPressed: function(event) {
+                            if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+                                if (!event.isAutoRepeat) {
+                                    var dir = (event.key === Qt.Key_Right) ? 1 : -1
+                                    if (slider.accelDirection !== dir) {
+                                        slider.accelDirection = dir
+                                        slider.accelIteration = 0
+                                    }
+                                    releaseTimer.stop()
+                                    slider.applyAccelStep()
+                                }
+                                event.accepted = true
+                            }
+                        }
+
+                        Keys.onReleased: function(event) {
+                            if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+                                if (!event.isAutoRepeat) {
+                                    releaseTimer.restart()
+                                }
+                                event.accepted = true
+                            }
+                        }
+
                         onValueChanged: {
                             bitrateTitle.text = qsTr("Video bitrate: %1 Mbps").arg(value / 1000.0)
                             StreamingPreferences.bitrateKbps = value
