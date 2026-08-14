@@ -1,0 +1,57 @@
+# escape=`
+
+FROM mcr.microsoft.com/windows/servercore:ltsc2025 AS builder
+
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+# Install Visual Studio 2022 Build Tools with C++ workload
+# Note: --includeRecommended is required on servercore to avoid breaking PowerShell.
+# Do NOT delete 'C:\ProgramData\Package Cache' or TEMP on servercore — it breaks PowerShell.
+RUN Invoke-WebRequest -Uri https://aka.ms/vs/17/release/vs_buildtools.exe -OutFile vs_buildtools.exe; `
+    Start-Process -FilePath .\vs_buildtools.exe -ArgumentList `
+      '--quiet', '--wait', '--norestart', `
+      '--add', 'Microsoft.VisualStudio.Workload.VCTools', `
+      '--add', 'Microsoft.VisualStudio.Component.Windows11SDK.26100', `
+      '--includeRecommended' `
+      -Wait -NoNewWindow; `
+    Remove-Item vs_buildtools.exe -Force
+
+# Install Python, use it to install Qt via aqtinstall, then remove Python.
+# Combined into one RUN so Python's ~766 MB doesn't persist as a layer.
+# Uses absolute paths since PrependPath only takes effect in the next layer.
+RUN Invoke-WebRequest -Uri https://www.python.org/ftp/python/3.12.4/python-3.12.4-amd64.exe -OutFile python-installer.exe; `
+    Start-Process -FilePath .\python-installer.exe -ArgumentList '/quiet', 'InstallAllUsers=1', 'TargetDir=C:\Python' -Wait -NoNewWindow; `
+    Remove-Item python-installer.exe -Force; `
+    C:\Python\python.exe -m pip install --no-cache-dir https://github.com/miurahr/aqtinstall/archive/073e34d7c2ab4ae6961ed7cca690b3abd5ba5a7e.zip; `
+    C:\Python\Scripts\aqt.exe install-qt windows desktop 6.11.0 win64_msvc2022_64 --outputdir C:\Qt; `
+    Remove-Item -Recurse -Force C:\Python -ErrorAction SilentlyContinue; `
+    Remove-Item -Recurse -Force ($env:TEMP + '\*') -ErrorAction SilentlyContinue
+
+# Install 7-Zip
+RUN Invoke-WebRequest -Uri https://www.7-zip.org/a/7z2408-x64.exe -OutFile 7z-installer.exe; `
+    Start-Process -FilePath .\7z-installer.exe -ArgumentList '/S' -Wait -NoNewWindow; `
+    Remove-Item 7z-installer.exe -Force; `
+    $machinePath = [Environment]::GetEnvironmentVariable('PATH', 'Machine'); `
+    [Environment]::SetEnvironmentVariable('PATH', 'C:\Program Files\7-Zip;' + $machinePath, 'Machine')
+
+# Skip MSI build in Docker (only the portable ZIP is extracted)
+ENV SKIP_MSI=1
+
+WORKDIR C:\src
+COPY . .
+
+# Verify submodules
+RUN if (-not (Test-Path 'moonlight-common-c\moonlight-common-c\CMakeLists.txt')) { `
+      Write-Error 'Submodules not initialized. Run git submodule update --init --recursive before building.'; `
+      exit 1 `
+    }
+
+# Build x64 Release
+SHELL ["cmd", "/S", "/C"]
+RUN set "PATH=C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64;C:\Qt\6.11.0\msvc2022_64\bin;%PATH%" && scripts\build-arch.bat Release
+
+# Copy artifacts to output
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+RUN New-Item -ItemType Directory -Force -Path C:\output\deploy | Out-Null; `
+    Copy-Item build\installer-x64-release\MoonlightPortable-x64-*.zip C:\output\MoonlightPortable-x64.zip; `
+    Copy-Item build\deploy-x64-release\* C:\output\deploy\ -Recurse -Force

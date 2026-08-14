@@ -1,0 +1,28 @@
+name: moonlight-qt
+
+services:
+  appimage:
+    image: moonlight-qt-appimage:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.linux
+      target: builder
+      labels:
+        - "com.moonlight-qt.build=true"
+    volumes:
+      - ./builds:/output-host
+    entrypoint: ["/bin/sh", "-c", "cp /output/Moonlight-x86_64.AppImage /output-host/Moonlight-x86_64.AppImage"]
+    platform: linux/amd64
+
+  windows:
+    image: moonlight-qt-windows:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.windows
+      target: builder
+      labels:
+        - "com.moonlight-qt.build=true"
+    volumes:
+      - ./builds:C:\output-host
+    entrypoint: ["cmd", "/c", "copy", "C:\\output\\MoonlightPortable-x64.zip", "C:\\output-host\\MoonlightPortable-x64.zip"]
+    platform: windows/amd64

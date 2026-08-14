@@ -1,0 +1,14 @@
+build/
+builds/
+.git/
+.github/
+.claude/
+*.AppImage
+*.zip
+*.msi
+*.dmg
+Dockerfile.linux
+build-docker-linux.sh
+scripts/build-steamlink-app.sh
+scripts/build-appimage.sh
+scripts/generate-dmg.sh
